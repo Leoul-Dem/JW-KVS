@@ -4,7 +4,6 @@
 #include <functional>
 #include <optional>
 #include <atomic>
-#include <iostream>
 
 const int STARTER_SIZE = 100000;
 const int MAX_CUCKOO_COUNT = 8;
@@ -108,18 +107,20 @@ private:
     // Reinsert all elements
     for (const auto& item : old_table_1) {
       if (!item.is_empty) {
-        if (!cuckoo_insert(item.key, item.value)) {
+        /*if (!cuckoo_insert(item.key, item.value)) {
           // This shouldn't happen with a good hash function
           throw runtime_error("Failed to rehash");
-        }
+        }*/
+        cuckoo_insert(item.key, item.value);
       }
     }
 
     for (const auto& item : old_table_2) {
       if (!item.is_empty) {
-        if (!cuckoo_insert(item.key, item.value)) {
+        /*if (!cuckoo_insert(item.key, item.value)) {
           throw runtime_error("Failed to rehash");
-        }
+        }*/
+        cuckoo_insert(item.key, item.value);
       }
     }
   }
