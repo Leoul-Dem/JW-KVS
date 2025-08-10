@@ -1,8 +1,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
-#include "../storage/store.h"
 #include <cstdint>
+#include <iostream>
+#include <vector>
 
 template <typename K, typename V>
 class Server{
@@ -13,7 +14,6 @@ private:
   struct sockaddr_in server_address;
   struct sockaddr_in client_address;
   socklen_t addr_len;
-  Storage <K, V> store;
 
 public:
   Server(int port) : port(port), addr_len(sizeof(server_address)){
@@ -22,7 +22,6 @@ public:
     server_address.sin_family = AF_INET;
     server_address.sin_addr.s_addr = INADDR_ANY;
     server_address.sin_port = htons(port);
-    store = Storage();
   }
 
   ~Server() {

@@ -1,5 +1,4 @@
 #include <string>
-#include <sstream>
 #include <vector>
 #include <unistd.h>
 #include <cstdint>
@@ -78,6 +77,14 @@ std::vector<uint8_t> extract_value(size_t val_start, const std::vector<uint8_t>&
 
 }
 
+Commands command_from_string(std::string text){
+  if(text == "PUT") return Commands::PUT;
+  if(text == "GET") return Commands::GET;
+  if(text == "POST") return Commands::POST;
+  if(text == "DELETE") return Commands::DELETE;
+
+  return Commands::ERROR_;
+}
 
 // A request will have the following form:
 //  PUT {Key} {Value} (since the key and value of generic, the beginning and
@@ -87,100 +94,75 @@ std::vector<uint8_t> extract_value(size_t val_start, const std::vector<uint8_t>&
 //  POST {Key} {Value}
 
 struct KVParam {
-  std::vector<uint8_t>* key;
-  std::optional<std::vector<uint8_t>*> value; // nullopt => only key present
+  std::vector<uint8_t> key;
+  std::optional<std::vector<uint8_t>> value; // nullopt => only key present
 };
 
 Request<KVParam> create_request(const std::vector<uint8_t>& input){
 
-
   std::string cmd_string;
-  for (uint8_t i : input){
-    if(i == ' '){
+  for (uint8_t c : input){
+    if(c == ' '){
       break;
     }
-    cmd_string.push_back(static_cast<char>(i));
+    cmd_string.push_back(static_cast<char>(c));
   }
 
-  Commands cmd;
+  Commands cmd = command_from_string(cmd_string);
 
-  if(cmd_string == "PUT"){
-    cmd = Commands::PUT;
+  switch(cmd){
+    case Commands::PUT:
+    case Commands::POST:{
+      auto tmp = extract_key(cmd, input);
+      std::vector<uint8_t> key = tmp.first;
+      if(key.empty()){
+        std::cerr << "Invalid Request. PUT or POST request format: PUT {Key} {Value} or POST {Key} {Value}. (BRACES REQUIRED)" << std::endl;
+        return {Commands::ERROR_, {{}, std::nullopt}};
+      };
 
-    std::vector<uint8_t> key;
-    std::vector<uint8_t> value;
-    size_t val_start;
-    auto tmp = extract_key(Commands::PUT, input);
+      size_t val_start = tmp.second + 2;
+      std::vector<uint8_t> value = extract_value(val_start, input);
+      if(value.empty()){
+        std::cerr << "Invalid Request. PUT or POST request format: PUT {Key} {Value} or POST {Key} {Value}. (BRACES REQUIRED)" << std::endl;
+        return {Commands::ERROR_, {{}, std::nullopt}};
+      }
 
-
-    key = tmp.first;
-    if(key.size() == 0){
-      std::cerr << "Invalid Request. PUT request format: PUT {Key} {Value}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
-    };
-
-    val_start = tmp.second + 2;
-
-    value = extract_value(val_start, input);
-    if(value.size() == 0){
-      std::cerr << "Invalid Request. PUT request format: PUT {Key} {Value}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
+      return {cmd, {std::move(key), std::make_optional(std::move(value))}};
     }
 
-    return {cmd, {&key, &value}};
+    case Commands::GET:
+    case Commands::DELETE:{
+      std::vector<uint8_t> key = extract_key(cmd, input).first;
+      if(key.empty()){
+        std::cerr << "Invalid Request. GET or DELETE request format: GET {Key} or DELETE {Key}. (BRACES REQUIRED)" << std::endl;
+        return {Commands::ERROR_, {{}, std::nullopt}};
+      };
 
-  }else if (cmd_string == "GET"){
-    cmd = Commands::GET;
-
-    std::vector<uint8_t> key = extract_key(Commands::GET, input).first;
-    if(key.size() == 0){
-      std::cerr << "Invalid Request. GET request format: GET {Key}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
-    };
-
-    return {cmd, {&key, nullptr}};
-
-  }else if (cmd_string == "DELETE"){
-    cmd = Commands::DELETE;
-
-    std::vector<uint8_t> key = extract_key(Commands::DELETE, input).first;
-    if(key.size() == 0){
-      std::cerr << "Invalid Request. DELETE request format: DELETE {Key}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
-    };
-
-    return {cmd, {&key, nullptr}};
-
-  }else if (cmd_string == "POST"){
-    cmd = Commands::POST;
-
-    std::vector<uint8_t> key;
-    std::vector<uint8_t> value;
-    size_t val_start;
-    auto tmp = extract_key(Commands::POST, input);
-
-
-    key = tmp.first;
-    if(key.size() == 0){
-      std::cerr << "Invalid Request. POST request format: POST {Key} {Value}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
-    };
-
-    val_start = tmp.second + 2;
-
-    value = extract_value(val_start, input);
-    if(value.size() == 0){
-      std::cerr << "Invalid Request. POST request format: POST {Key} {Value}. (BRACES REQUIRED)" << std::endl;
-      return {Commands::ERROR_, {nullptr, nullptr}};
+      return {cmd, {std::move(key), std::nullopt}};
     }
 
-    return {cmd, {&key, &value}};
-
-
-  }else{
-    cmd = Commands::ERROR_;
+    default:
+      return {Commands::ERROR_, {{}, std::nullopt}};
   }
-
-  return {Commands::ERROR_, {nullptr, nullptr}};
 }
+
+
+
+template <typename V>
+struct Response{
+  std::optional<std::string> error;
+  std::optional<V>* return_val;
+  bool successful;
+};
+
+template<typename V>
+Response<V> create_response(std::optional<std::string> err_msg, bool success){
+  return {err_msg, nullptr, success};
+}
+
+template<typename V>
+Response<V> create_response(std::optional<std::string> err_msg, V& value, bool success){
+  return {err_msg, value, success};
+}
+
 

@@ -54,6 +54,6 @@ public:
 };
 
 // Include template implementation
-#include "store.cpp"
+//#include "store.cpp"
 
 #endif // STORE_H
