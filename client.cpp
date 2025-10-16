@@ -6,6 +6,7 @@
 #include <csignal>
 
 volatile int paused = 0;
+volatile int terminated = 0;
 
 void handle_sigusr1(int) {
     paused = 1;
@@ -16,14 +17,18 @@ void handle_sigusr2(int) {
 }
 
 void handle_sigterm(int){
-
+    terminated = 1;
 }
 
-int connect_to_server(){
+void handle_sigint(int){
+    terminated = 1;
+}
+
+int connect_to_server(int& client_fd){
     const char* socket_path = "/tmp/simple_socket";
-    int client_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    client_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (client_fd == -1) {
-        perror("socket");
+        perror("connect_to_server failure: socket");
         return -1;
     }
 
@@ -32,11 +37,26 @@ int connect_to_server(){
     strncpy(addr.sun_path, socket_path, sizeof(addr.sun_path) - 1);
 
     if (connect(client_fd, (sockaddr*)&addr, sizeof(addr)) == -1) {
-        perror("connect");
+        perror("connect_to_server failure: connect");
         return -1;
     }
 
-    return client_fd;
+    return 1;
+}
+
+int disconnect_from_server(int client_fd){
+    close(client_fd);
+    return 0;
+}
+
+int exchange_pid_with_shmem_fd(int client_fd, int& mem_fd){
+    int pid = getpid();
+
+    write(client_fd, &pid, sizeof(pid));
+
+    read(client_fd, &mem_fd, sizeof(mem_fd));
+
+    return 1;
 }
 
 int main() {
@@ -44,32 +64,29 @@ int main() {
     signal(SIGUSR1, handle_sigusr1);
     signal(SIGUSR2, handle_sigusr2);
     signal(SIGTERM, handle_sigterm);
+    signal(SIGINT, handle_sigint);
 
 
 
-    int client_fd = connect_to_server();
-    if (client_fd == -1) {
+    int client_fd;
+    int mem_fd;
+
+    if (connect_to_server(client_fd) == -1) {
         return 1;
     }
 
-    int pid = getpid();
+    exchange_pid_with_shmem_fd(client_fd, mem_fd);
 
-    int mem_fd;
-    ssize_t bytes_read;
-    do{
-        write(client_fd, &pid, sizeof(pid));
-        bytes_read= read(client_fd, &mem_fd, sizeof(mem_fd));
-    }while(bytes_read != sizeof(mem_fd));
+    while(!terminated){
+        if(paused){
+            while(!terminated && paused){
+                usleep(100000);
+            }
+        }
 
-
-    while(paused == 0){
-
-        // DO SOMETHING WITH KVS
-
+        // do stuff with kvs
     }
 
 
-
-    close(client_fd);
-    return 0;
+    return disconnect_from_server(client_fd);
 }

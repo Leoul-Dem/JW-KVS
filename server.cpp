@@ -14,6 +14,8 @@ std::atomic<bool> quit = false;
 
 std::vector<int> pid;
 
+const char* socket_path = "/tmp/simple_socket";
+
 void handle_sigint(int){
     for(auto i : pid){
         kill(i, SIGTERM);
@@ -22,20 +24,14 @@ void handle_sigint(int){
 }
 
 void handle_resizing(){
-    
+
 }
 
-
-int main() {
-    signal(SIGINT, handle_sigint);
-
-    const char* socket_path = "/tmp/simple_socket";
-
-    // Create socket
-    int server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+int create_server_fd_and_listen(int& server_fd, std::string& err){
+    server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (server_fd == -1) {
-        perror("socket");
-        return 1;
+        err = "socket";
+        return -1;
     }
 
     // Remove any existing socket file
@@ -47,39 +43,66 @@ int main() {
 
     // Bind socket to a file path
     if (bind(server_fd, (sockaddr*)&addr, sizeof(addr)) == -1) {
-        perror("bind");
-        return 1;
+        err = "bind";
+        return -1;
     }
 
     if (listen(server_fd, 5) == -1) {
-        perror("listen");
-        return 1;
+        err = "listen";
+        return -1;
     }
+
+}
+
+int accept_client_conn(int server_fd, std::vector<int>& client_fd){
+    int fd = accept(server_fd, nullptr, nullptr);
+
+    if (fd == -1) {
+        perror("accept");
+        return -1;
+    }else{
+        client_fd.push_back(fd);
+        curr_using++;
+    }
+    return 1;
+}
+
+int exchange_pid_with_shmem_fd(int client_fd, int& value){
+    int shmem_fd = 1234;
+
+    read(client_fd, &value, sizeof(value));
+
+    write(client_fd, &shmem_fd, sizeof(shmem_fd));
+
+    return 1;
+}
+
+
+
+int main() {
+    ConcurrentHashMap<int, int> map;
+
+    signal(SIGINT, handle_sigint);
+
+    // Create socket
+    int server_fd;
+    std::string error;
+
+    create_server_fd_and_listen(server_fd, error);
+
 
     std::cout << "Server listening on " << socket_path << "\n";
     std::vector<int>client_fd;
 
     while (!quit) {
-        client_fd.push_back( accept(server_fd, nullptr, nullptr));
-        if (client_fd.back() == -1) {
-            perror("accept");
-            client_fd.erase(client_fd.begin() + client_fd.size()-1);
-            return -1;
-        }else{
-            curr_using++;
+        if(accept_client_conn(server_fd, client_fd)){
+           break;
         }
 
-        int value;
-        ssize_t bytes_read = read(client_fd.back(), &value, sizeof(value));
-        while(bytes_read != sizeof(value)){
-            int error_flag = -1;
-            write(client_fd.back(), &error_flag, sizeof(error_flag));
-            bytes_read = read(client_fd.back(), &value, sizeof(value));
-        }
-        pid.push_back(value);
+        int client_pid;
+        exchange_pid_with_shmem_fd(client_fd.back(), client_pid);
 
-        int some_addr = 1234;
-        write(client_fd.back(), &some_addr, sizeof(some_addr));
+        pid.push_back(client_pid);
     }
 
 
